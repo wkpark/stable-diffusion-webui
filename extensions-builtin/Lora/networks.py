@@ -546,8 +546,8 @@ def network_apply_weights(self: Union[torch.nn.Conv2d, torch.nn.Linear, torch.nn
 
 
         if weights_backup is True or weights_backup == (True, True): # fake backup
-            setattr(self, "network_weights_backup", None)
-            setattr(self, "network_bias_backup", None)
+            self.network_weights_backup = None
+            self.network_bias_backup = None
         else:
             self.network_current_names = wanted_names
 
