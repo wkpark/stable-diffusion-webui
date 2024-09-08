@@ -1,5 +1,4 @@
 import torch
-from einops import rearrange
 from torch import Tensor
 
 
@@ -7,7 +6,9 @@ def attention(q: Tensor, k: Tensor, v: Tensor, pe: Tensor) -> Tensor:
     q, k = apply_rope(q, k, pe)
 
     x = torch.nn.functional.scaled_dot_product_attention(q, k, v)
-    x = rearrange(x, "B H L D -> B L (H D)")
+    #x = rearrange(x, "B H L D -> B L (H D)")
+    B, H, L, D = x.shape
+    x = x.permute(0, 2, 1, 3).contiguous().view(B, L, H * D)
 
     return x
 
@@ -17,9 +18,13 @@ def rope(pos: Tensor, dim: int, theta: int) -> Tensor:
     scale = torch.arange(0, dim, 2, dtype=torch.float64, device=pos.device) / dim
     omega = 1.0 / (theta**scale)
     out = torch.einsum("...n,d->...nd", pos, omega)
+    #out = pos.unsqueeze(-1) * omega.unsqueeze(0)
+
     out = torch.stack([torch.cos(out), -torch.sin(out), torch.sin(out), torch.cos(out)], dim=-1)
-    out = rearrange(out, "b n d (i j) -> b n d i j", i=2, j=2)
-    return out.float()
+    #out = rearrange(out, "b n d (i j) -> b n d i j", i=2, j=2)
+    b, n, d, _ = out.shape
+    out = out.view(b, n, d, 2, 2)
+    return out.to(dtype=torch.float32, device=pos.device)
 
 
 def apply_rope(xq: Tensor, xk: Tensor, freqs_cis: Tensor):

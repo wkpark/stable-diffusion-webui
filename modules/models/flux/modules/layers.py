@@ -2,7 +2,6 @@ import math
 from dataclasses import dataclass
 
 import torch
-from einops import rearrange
 from torch import Tensor, nn
 
 from ..math import attention, rope
@@ -58,16 +57,28 @@ class MLPEmbedder(nn.Module):
         return self.out_layer(self.silu(self.in_layer(x)))
 
 
+def rms_norm(x, normalized_shape, weight, eps):
+    if hasattr(torch, 'rms_norm'): # torch 2.4
+        return torch.rms_norm(x, normalized_shape, weight, eps)
+
+    if x.dtype in [torch.bfloat16, torch.float32]:
+        n = torch.rsqrt(torch.mean(x ** 2, dim=-1, keepdim=True) + eps) * weight
+    else:
+        n = torch.rsqrt(torch.mean(x.float() ** 2, dim=-1, keepdim=True) + eps).to(x.dtype) * weight
+    return x * n
+
+
 class RMSNorm(torch.nn.Module):
     def __init__(self, dim: int, dtype=None, device=None):
         super().__init__()
-        self.scale = nn.Parameter(torch.empty((dim), dtype=dtype, device=device))
+        self.scale = nn.Parameter(torch.ones((dim), dtype=dtype, device=device))
+        self.normalized_shape = [dim]
 
     def forward(self, x: Tensor):
-        x_dtype = x.dtype
-        x = x.float()
-        rrms = torch.rsqrt(torch.mean(x**2, dim=-1, keepdim=True) + 1e-6)
-        return (x * rrms).to(dtype=x_dtype) * self.scale
+        if self.scale.dtype != x.dtype:
+            self.scale = nn.Parameter(self.scale.to(dtype=x.dtype), requires_grad=x.requires_grad)
+
+        return rms_norm(x, self.normalized_shape, self.scale, 1e-6)
 
 
 class QKNorm(torch.nn.Module):
@@ -98,7 +109,9 @@ class SelfAttention(nn.Module):
 
     def forward(self, x: Tensor, pe: Tensor) -> Tensor:
         qkv = self.qkv(x)
-        q, k, v = rearrange(qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)
+        #q, k, v = rearrange(qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)
+        B, L, _ = qkv.shape
+        q, k, v = qkv.view(B, L, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
         q, k = self.norm(q, k, v)
         x = attention(q, k, v, pe=pe)
         x = self.proj(x)
@@ -165,14 +178,18 @@ class DoubleStreamBlock(nn.Module):
         img_modulated = self.img_norm1(img)
         img_modulated = (1 + img_mod1.scale) * img_modulated + img_mod1.shift
         img_qkv = self.img_attn.qkv(img_modulated)
-        img_q, img_k, img_v = rearrange(img_qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)
+        #img_q, img_k, img_v = rearrange(img_qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)
+        B, L, _ = img_qkv.shape
+        img_q, img_k, img_v = img_qkv.view(B, L, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
         img_q, img_k = self.img_attn.norm(img_q, img_k, img_v)
 
         # prepare txt for attention
         txt_modulated = self.txt_norm1(txt)
         txt_modulated = (1 + txt_mod1.scale) * txt_modulated + txt_mod1.shift
         txt_qkv = self.txt_attn.qkv(txt_modulated)
-        txt_q, txt_k, txt_v = rearrange(txt_qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)
+        #txt_q, txt_k, txt_v = rearrange(txt_qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)
+        B, L, _ = txt_qkv.shape
+        txt_q, txt_k, txt_v = txt_qkv.view(B, L, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
         txt_q, txt_k = self.txt_attn.norm(txt_q, txt_k, txt_v)
 
         # run actual attention
@@ -238,7 +255,9 @@ class SingleStreamBlock(nn.Module):
         x_mod = (1 + mod.scale) * self.pre_norm(x) + mod.shift
         qkv, mlp = torch.split(self.linear1(x_mod), [3 * self.hidden_size, self.mlp_hidden_dim], dim=-1)
 
-        q, k, v = rearrange(qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)
+        #q, k, v = rearrange(qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)
+        B, L, _ = qkv.shape
+        q, k, v = qkv.view(B, L, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
         q, k = self.norm(q, k, v)
 
         # compute attention
