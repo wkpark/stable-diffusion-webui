@@ -107,6 +107,7 @@ class Flux(nn.Module):
 
         ids = torch.cat((txt_ids, img_ids), dim=1)
         pe = self.pe_embedder(ids)
+        del ids
 
         for block in self.double_blocks:
             img, txt = block(img=img, txt=txt, vec=vec, pe=pe)
@@ -115,9 +116,11 @@ class Flux(nn.Module):
         for block in self.single_blocks:
             img = block(img, vec=vec, pe=pe)
         img = img[:, txt.shape[1] :, ...]
+        del pe, txt
 
         if self.final_layer:
             img = self.final_layer(img, vec)  # (N, T, patch_size ** 2 * out_channels)
+        del vec
         return img
 
     def forward(self, x, timestep, context, y, guidance, **kwargs):
@@ -144,4 +147,5 @@ class Flux(nn.Module):
 
         txt_ids = torch.zeros((bs, context.shape[1], 3), device=x.device, dtype=x.dtype)
         out = self.forward_orig(img, img_ids, context, txt_ids, timestep, y, guidance)
+        del img, img_ids, txt_ids
         return rearrange(out, "b (h w) (c ph pw) -> b c (h ph) (w pw)", h=h_len, w=w_len, ph=2, pw=2)[:,:,:h,:w]

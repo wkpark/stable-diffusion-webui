@@ -38,7 +38,9 @@ def timestep_embedding(t: Tensor, dim, max_period=10000, time_factor: float = 10
     freqs = torch.exp(-math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32, device=t.device) / half)
 
     args = t[:, None].float() * freqs[None]
+    del freqs
     embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
+    del args
     if dim % 2:
         embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
     if torch.is_floating_point(t):
@@ -178,34 +180,45 @@ class DoubleStreamBlock(nn.Module):
         img_modulated = self.img_norm1(img)
         img_modulated = (1 + img_mod1.scale) * img_modulated + img_mod1.shift
         img_qkv = self.img_attn.qkv(img_modulated)
+        del img_modulated
         #img_q, img_k, img_v = rearrange(img_qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)
         B, L, _ = img_qkv.shape
         img_q, img_k, img_v = img_qkv.view(B, L, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
+        del img_qkv
         img_q, img_k = self.img_attn.norm(img_q, img_k, img_v)
 
         # prepare txt for attention
         txt_modulated = self.txt_norm1(txt)
         txt_modulated = (1 + txt_mod1.scale) * txt_modulated + txt_mod1.shift
         txt_qkv = self.txt_attn.qkv(txt_modulated)
+        del txt_modulated
         #txt_q, txt_k, txt_v = rearrange(txt_qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)
         B, L, _ = txt_qkv.shape
         txt_q, txt_k, txt_v = txt_qkv.view(B, L, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
+        del txt_qkv
         txt_q, txt_k = self.txt_attn.norm(txt_q, txt_k, txt_v)
 
         # run actual attention
         q = torch.cat((txt_q, img_q), dim=2)
         k = torch.cat((txt_k, img_k), dim=2)
         v = torch.cat((txt_v, img_v), dim=2)
+        del txt_q, img_q
+        del txt_k, img_k
+        del txt_v, img_v
 
         attn = attention(q, k, v, pe=pe)
+        del q, k, v, pe
         txt_attn, img_attn = attn[:, : txt.shape[1]], attn[:, txt.shape[1] :]
+        del attn
 
         # calculate the img bloks
         img = img + img_mod1.gate * self.img_attn.proj(img_attn)
         img = img + img_mod2.gate * self.img_mlp((1 + img_mod2.scale) * self.img_norm2(img) + img_mod2.shift)
+        del img_attn
 
         # calculate the txt bloks
         txt = txt + txt_mod1.gate * self.txt_attn.proj(txt_attn)
+        del txt_attn
         txt = txt + txt_mod2.gate * self.txt_mlp((1 + txt_mod2.scale) * self.txt_norm2(txt) + txt_mod2.shift)
 
         if txt.dtype == torch.float16:
@@ -254,17 +267,23 @@ class SingleStreamBlock(nn.Module):
         mod, _ = self.modulation(vec)
         x_mod = (1 + mod.scale) * self.pre_norm(x) + mod.shift
         qkv, mlp = torch.split(self.linear1(x_mod), [3 * self.hidden_size, self.mlp_hidden_dim], dim=-1)
+        del x_mod
 
         #q, k, v = rearrange(qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)
         B, L, _ = qkv.shape
         q, k, v = qkv.view(B, L, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
+        del qkv
         q, k = self.norm(q, k, v)
 
         # compute attention
         attn = attention(q, k, v, pe=pe)
+        del q, k, v, pe
         # compute activation in mlp stream, cat again and run second linear layer
         output = self.linear2(torch.cat((attn, self.mlp_act(mlp)), 2))
+        del attn, mlp
         x += mod.gate * output
+        del mod, output
+
         if x.dtype == torch.float16:
             x = torch.nan_to_num(x, nan=0.0, posinf=65504, neginf=-65504)
         return x
@@ -280,5 +299,6 @@ class LastLayer(nn.Module):
     def forward(self, x: Tensor, vec: Tensor) -> Tensor:
         shift, scale = self.adaLN_modulation(vec).chunk(2, dim=1)
         x = (1 + scale[:, None, :]) * self.norm_final(x) + shift[:, None, :]
+        del shift, scale
         x = self.linear(x)
         return x
