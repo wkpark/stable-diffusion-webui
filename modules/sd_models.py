@@ -553,6 +553,8 @@ def load_model_weights(model, checkpoint_info: CheckpointInfo, state_dict, timer
         timer.record("apply channels_last")
 
     unet_has_float = [f for f in state_dict_dtype["model.diffusion_model."].keys() if f in (torch.float16, torch.float32, torch.bfloat16)]
+    # check dtype of vae
+    dtype_vae = get_vae_dtype(state_dict_dtype=state_dict_dtype)
 
     if unet_has_float and shared.cmd_opts.no_half:
         model.float()
@@ -564,8 +566,11 @@ def load_model_weights(model, checkpoint_info: CheckpointInfo, state_dict, timer
         vae = model.first_stage_model
         depth_model = getattr(model, 'depth_model', None)
 
+        if dtype_vae == torch.bfloat16 and dtype_vae in devices.supported_vae_dtypes:
+            # preserve bfloat16 if it supported
+            model.first_stage_model = None
         # with --no-half-vae, remove VAE from model when doing half() to prevent its weights from being converted to float16
-        if shared.cmd_opts.no_half_vae:
+        elif shared.cmd_opts.no_half_vae:
             model.first_stage_model = None
         # with --upcast-sampling, don't convert the depth model weights to float16
         if shared.cmd_opts.upcast_sampling and depth_model:
@@ -607,8 +612,16 @@ def load_model_weights(model, checkpoint_info: CheckpointInfo, state_dict, timer
 
     if found_unet_dtype not in (torch.float8_e4m3fn,) and check_fp8(model):
         devices.fp8 = True
+
+        # do not convert vae, text_encoders.clip_l, clip_g, t5xxl
         first_stage = model.first_stage_model
         model.first_stage_model = None
+        vae = getattr(model, 'vae', None)
+        if vae is not None:
+            model.vae = None
+        text_encoders = getattr(model, 'text_encoders', None)
+        if text_encoders is not None:
+            model.text_encoders = None
         for module in model.modules():
             if isinstance(module, (torch.nn.Conv2d, torch.nn.Linear)):
                 if shared.opts.cache_fp16_weight:
@@ -616,6 +629,10 @@ def load_model_weights(model, checkpoint_info: CheckpointInfo, state_dict, timer
                     if module.bias is not None:
                         module.fp16_bias = module.bias.data.clone().cpu().half()
                 module.to(torch.float8_e4m3fn)
+        if text_encoders is not None:
+            model.text_encoders = text_encoders
+        if vae is not None:
+            model.vae = vae
         model.first_stage_model = first_stage
         timer.record("apply fp8")
     else:
@@ -930,8 +947,17 @@ def load_model(checkpoint_info=None, already_loaded_state_dict=None):
 
     print(f"Creating model from config: {checkpoint_config}")
 
+    # get all dtypes of state_dict
+    state_dict_dtype = get_state_dict_dtype(state_dict)
+
     # check loadable unet dtype before loading
-    loadable_unet_dtype = get_loadable_dtype("model.diffusion_model.", state_dict=state_dict)
+    loadable_unet_dtype = get_loadable_dtype("model.diffusion_model.", state_dict_dtype=state_dict_dtype)
+
+    # check dtype of vae
+    dtype_vae = get_vae_dtype(state_dict_dtype=state_dict_dtype)
+    if dtype_vae == torch.bfloat16 and dtype_vae in devices.supported_vae_dtypes:
+        devices.dtype_vae = torch.bfloat16
+        print(f"VAE dtype {dtype_vae} detected.")
 
     sd_model = None
     try:
