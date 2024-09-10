@@ -112,8 +112,7 @@ class SelfAttention(nn.Module):
     def forward(self, x: Tensor, pe: Tensor) -> Tensor:
         qkv = self.qkv(x)
         #q, k, v = rearrange(qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)
-        B, L, _ = qkv.shape
-        q, k, v = qkv.view(B, L, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv.view(*qkv.shape[:-1], 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
         q, k = self.norm(q, k, v)
         x = attention(q, k, v, pe=pe)
         x = self.proj(x)
@@ -182,8 +181,7 @@ class DoubleStreamBlock(nn.Module):
         img_qkv = self.img_attn.qkv(img_modulated)
         del img_modulated
         #img_q, img_k, img_v = rearrange(img_qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)
-        B, L, _ = img_qkv.shape
-        img_q, img_k, img_v = img_qkv.view(B, L, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
+        img_q, img_k, img_v = img_qkv.view(*img_qkv.shape[:-1], 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
         del img_qkv
         img_q, img_k = self.img_attn.norm(img_q, img_k, img_v)
 
@@ -193,8 +191,7 @@ class DoubleStreamBlock(nn.Module):
         txt_qkv = self.txt_attn.qkv(txt_modulated)
         del txt_modulated
         #txt_q, txt_k, txt_v = rearrange(txt_qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)
-        B, L, _ = txt_qkv.shape
-        txt_q, txt_k, txt_v = txt_qkv.view(B, L, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
+        txt_q, txt_k, txt_v = txt_qkv.view(*txt_qkv.shape[:-1], 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
         del txt_qkv
         txt_q, txt_k = self.txt_attn.norm(txt_q, txt_k, txt_v)
 
@@ -270,8 +267,7 @@ class SingleStreamBlock(nn.Module):
         del x_mod
 
         #q, k, v = rearrange(qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)
-        B, L, _ = qkv.shape
-        q, k, v = qkv.view(B, L, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv.view(*qkv.shape[:-1], 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
         del qkv
         q, k = self.norm(q, k, v)
 

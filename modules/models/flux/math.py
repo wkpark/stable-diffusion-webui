@@ -17,13 +17,14 @@ def rope(pos: Tensor, dim: int, theta: int) -> Tensor:
     assert dim % 2 == 0
     scale = torch.arange(0, dim, 2, dtype=torch.float64, device=pos.device) / dim
     omega = 1.0 / (theta**scale)
-    out = torch.einsum("...n,d->...nd", pos, omega)
-    #out = pos.unsqueeze(-1) * omega.unsqueeze(0)
+    #out = torch.einsum("...n,d->...nd", pos, omega)
+    out = pos.unsqueeze(-1) * omega.unsqueeze(0)
 
-    out = torch.stack([torch.cos(out), -torch.sin(out), torch.sin(out), torch.cos(out)], dim=-1)
+    cos_out, sin_out = torch.cos(out), torch.sin(out)
+
+    out = torch.stack([cos_out, -sin_out, sin_out, cos_out], dim=-1)
     #out = rearrange(out, "b n d (i j) -> b n d i j", i=2, j=2)
-    b, n, d, _ = out.shape
-    out = out.view(b, n, d, 2, 2)
+    out = out.view(*out.shape[:-1], 2, 2)
     return out.to(dtype=torch.float32, device=pos.device)
 
 
