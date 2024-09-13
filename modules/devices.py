@@ -193,6 +193,8 @@ def manual_cast_forward(target_dtype, target_device=None, copy=False):
             if param.dtype != target_dtype:
                 org_dtype = param.dtype
                 break
+            else:
+                break
 
         if copy:
             copied = deepcopy(self)
@@ -227,10 +229,10 @@ def manual_cast_forward(target_dtype, target_device=None, copy=False):
 
 
 @contextlib.contextmanager
-def manual_cast(target_dtype, target_device=None):
+def manual_cast(target_dtype, target_device=None, copy=None):
     applied = False
 
-    copy = shared.opts.lora_without_backup_weight
+    copy = copy if copy is not None else shared.opts.lora_without_backup_weight
 
     for module_type in patch_module_list:
         if hasattr(module_type, "org_forward"):

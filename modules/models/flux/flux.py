@@ -320,7 +320,6 @@ class FLUX1Inferencer(torch.nn.Module):
     def medvram_fields(self):
         return [
             (self, 'first_stage_model'),
-            (self, 'vae'),
             (self, 'text_encoders'),
             (self, 'model'),
         ]
