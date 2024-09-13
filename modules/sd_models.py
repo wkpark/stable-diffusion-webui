@@ -484,12 +484,14 @@ def get_vae_dtype(state_dict=None, state_dict_dtype=None):
         raise ValueError("fail to get vae dtype")
 
 
-    vae_prefix = [prefix for prefix in ("vae.", "first_stage_model.") if prefix in state_dict_dtype][0]
+    vae_prefixes = [prefix for prefix in ("vae.", "first_stage_model.") if prefix in state_dict_dtype]
 
-    for dtype in state_dict_dtype[vae_prefix]:
-        if state_dict_dtype[vae_prefix][dtype] > 240 and dtype in (torch.float16, torch.float32, torch.bfloat16):
-            # vae items: 248 for SD1, SDXL 245 for flux
-            return dtype
+    if len(vae_prefixes) > 0:
+        vae_prefix = vae_prefixes[0]
+        for dtype in state_dict_dtype[vae_prefix]:
+            if state_dict_dtype[vae_prefix][dtype] > 240 and dtype in (torch.float16, torch.float32, torch.bfloat16):
+                # vae items: 248 for SD1, SDXL 245 for flux
+                return dtype
 
     return None
 
@@ -552,7 +554,10 @@ def load_model_weights(model, checkpoint_info: CheckpointInfo, state_dict, timer
         model.to(memory_format=torch.channels_last)
         timer.record("apply channels_last")
 
-    unet_has_float = [f for f in state_dict_dtype["model.diffusion_model."].keys() if f in (torch.float16, torch.float32, torch.bfloat16)]
+    if "model.diffusion_model." in state_dict_dtype:
+        unet_has_float = [f for f in state_dict_dtype["model.diffusion_model."].keys() if f in (torch.float16, torch.float32, torch.bfloat16)]
+    else:
+        unet_has_float = False
 
     if unet_has_float and shared.cmd_opts.no_half:
         model.float()
@@ -581,7 +586,7 @@ def load_model_weights(model, checkpoint_info: CheckpointInfo, state_dict, timer
         elif found_unet_dtype in (torch.float8_e4m3fn,):
             pass
         else:
-            raise ValueError("fail to get a vaild UNet dtype")
+            print("Fail to get a vaild UNet dtype. ignore...")
 
         model.alphas_cumprod = alphas_cumprod
         model.alphas_cumprod_original = alphas_cumprod
