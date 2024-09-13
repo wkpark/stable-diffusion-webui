@@ -484,12 +484,14 @@ def get_vae_dtype(state_dict=None, state_dict_dtype=None):
         raise ValueError("fail to get vae dtype")
 
 
-    vae_prefix = [prefix for prefix in ("vae.", "first_stage_model.") if prefix in state_dict_dtype][0]
+    vae_prefixes = [prefix for prefix in ("vae.", "first_stage_model.") if prefix in state_dict_dtype]
 
-    for dtype in state_dict_dtype[vae_prefix]:
-        if state_dict_dtype[vae_prefix][dtype] > 240 and dtype in (torch.float16, torch.float32, torch.bfloat16):
-            # vae items: 248 for SD1, SDXL 245 for flux
-            return dtype
+    if len(vae_prefixes) > 0:
+        vae_prefix = vae_prefixes[0]
+        for dtype in state_dict_dtype[vae_prefix]:
+            if state_dict_dtype[vae_prefix][dtype] > 240 and dtype in (torch.float16, torch.float32, torch.bfloat16):
+                # vae items: 248 for SD1, SDXL 245 for flux
+                return dtype
 
     return None
 
@@ -552,11 +554,13 @@ def load_model_weights(model, checkpoint_info: CheckpointInfo, state_dict, timer
         model.to(memory_format=torch.channels_last)
         timer.record("apply channels_last")
 
-    unet_has_float = [f for f in state_dict_dtype["model.diffusion_model."].keys() if f in (torch.float16, torch.float32, torch.bfloat16)]
     # check dtype of vae
     dtype_vae = get_vae_dtype(state_dict_dtype=state_dict_dtype)
+    found_unet_dtype = get_loadable_dtype("model.diffusion_model.", state_dict_dtype=state_dict_dtype)
+    unet_has_float = found_unet_dtype in (torch.float16, torch.float32, torch.bfloat16)
 
-    if unet_has_float and shared.cmd_opts.no_half:
+    if (found_unet_dtype is None or unet_has_float) and shared.cmd_opts.no_half:
+        # unet type is not detected or unet has float dtypes
         model.float()
         model.alphas_cumprod_original = model.alphas_cumprod
         devices.dtype_unet = torch.float32
@@ -579,14 +583,13 @@ def load_model_weights(model, checkpoint_info: CheckpointInfo, state_dict, timer
         alphas_cumprod = model.alphas_cumprod
         model.alphas_cumprod = None
 
-        found_unet_dtype = get_loadable_dtype("model.diffusion_model.", state_dict_dtype=state_dict_dtype)
 
         if found_unet_dtype in (torch.float16, torch.float32, torch.bfloat16):
             model.half()
         elif found_unet_dtype in (torch.float8_e4m3fn,):
             pass
         else:
-            raise ValueError("fail to get a vaild UNet dtype")
+            print("Fail to get a vaild UNet dtype. ignore...")
 
         model.alphas_cumprod = alphas_cumprod
         model.alphas_cumprod_original = alphas_cumprod
@@ -599,7 +602,7 @@ def load_model_weights(model, checkpoint_info: CheckpointInfo, state_dict, timer
             timer.record("apply half()")
         else:
             print(f"load Unet {found_unet_dtype} as is ...")
-            devices.dtype_unet = found_unet_dtype
+            devices.dtype_unet = found_unet_dtype if found_unet_dtype else torch.float16
             timer.record("load UNet")
 
     apply_alpha_schedule_override(model)
@@ -646,9 +649,9 @@ def load_model_weights(model, checkpoint_info: CheckpointInfo, state_dict, timer
         devices.dtype_vae = torch.bfloat16
         print(f"VAE dtype {dtype_vae} detected. load as is.")
     else:
-        devices.dtype_vae = torch.float16
+        # use default devices.dtype_vae
         model.first_stage_model.to(devices.dtype_vae)
-        print(f"force VAE dtype {devices.dtype_vae}")
+        print(f"Use VAE dtype {devices.dtype_vae}")
         timer.record("apply dtype to VAE")
 
     # clean up cache if limit is reached
