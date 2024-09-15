@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 from torch.nn.functional import silu
 from types import MethodType
 
@@ -43,6 +44,15 @@ ldm_original_forward = patches.patch(__file__, ldm.modules.diffusionmodules.open
 
 sgm_patched_forward = sd_unet.create_unet_forward(sgm.modules.diffusionmodules.openaimodel.UNetModel.forward)
 sgm_original_forward = patches.patch(__file__, sgm.modules.diffusionmodules.openaimodel.UNetModel, "forward", sgm_patched_forward)
+
+
+# patch reset_parameters() to speed up
+for module in [
+                nn.Linear, nn.Conv1d, nn.Conv2d, nn.Conv3d,
+                nn.GroupNorm, nn.LayerNorm, nn.Embedding,
+                nn.ConvTranspose1d, nn.ConvTranspose2d,
+            ]:
+    patches.patch(__name__, module, "reset_parameters", lambda x: None)
 
 
 def list_optimizers():
