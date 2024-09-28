@@ -3,7 +3,7 @@ from functools import wraps
 import html
 import time
 
-from modules import shared, progress, errors, devices, fifo_lock, profiling
+from modules import shared, progress, errors, devices, fifo_lock, profiling, manager
 
 queue_lock = fifo_lock.FIFOLock()
 
@@ -34,7 +34,7 @@ def wrap_gradio_gpu_call(func, extra_outputs=None):
             progress.start_task(id_task)
 
             try:
-                res = func(*args, **kwargs)
+                res = manager.task.run_and_wait_result(func, *args, **kwargs)
                 progress.record_results(id_task, res)
             finally:
                 progress.finish_task(id_task)
@@ -73,6 +73,7 @@ def wrap_gradio_call_no_job(func, extra_outputs=None, add_stats=False):
         try:
             res = list(func(*args, **kwargs))
         except Exception as e:
+            e = manager.task.last_exception if manager.task.last_exception is not None else e
             # When printing out our debug argument list,
             # do not print out more than a 100 KB of text
             max_debug_str_len = 131072
