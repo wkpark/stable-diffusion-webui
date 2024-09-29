@@ -73,7 +73,6 @@ def wrap_gradio_call_no_job(func, extra_outputs=None, add_stats=False):
         try:
             res = list(func(*args, **kwargs))
         except Exception as e:
-            e = manager.task.last_exception if manager.task.last_exception is not None else e
             # When printing out our debug argument list,
             # do not print out more than a 100 KB of text
             max_debug_str_len = 131072

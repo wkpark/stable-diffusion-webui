@@ -12,7 +12,6 @@ import asyncio
 import random
 import string
 import threading
-import traceback
 
 from collections import OrderedDict
 
@@ -36,8 +35,6 @@ class TaskManager:
         try:
             task.result = task.func(*task.args, **task.kwargs)
         except Exception as e:
-            traceback.print_exc()
-            print(e)
             task.exception = e
             self.last_exception = e
 
@@ -79,6 +76,8 @@ class TaskManager:
             loop.run_until_complete(asyncio.sleep(0.01))
             if current_id in self.finished_tasks:
                 finished = self.finished_tasks.pop(current_id)
+                if finished.exception is not None:
+                    raise finished.exception
 
                 return finished.result
 
