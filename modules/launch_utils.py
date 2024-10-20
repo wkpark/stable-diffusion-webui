@@ -277,7 +277,7 @@ def run_extensions_installers(settings_file):
                 startup_timer.record(dirname_extension)
 
 
-re_requirement = re.compile(r"\s*([-_a-zA-Z0-9]+)\s*(?:==\s*([-+_.a-zA-Z0-9]+))?\s*")
+re_requirement = re.compile(r"\s*([-_a-zA-Z0-9]+)\s*(?:([<>=]=)\s*([-+_.a-zA-Z0-9]+))?\s*")
 
 
 def requirements_met(requirements_file):
@@ -291,7 +291,7 @@ def requirements_met(requirements_file):
 
     with open(requirements_file, "r", encoding="utf8") as file:
         for line in file:
-            if line.strip() == "":
+            if line.strip() == "" or line[0] == '#':
                 continue
 
             m = re.match(re_requirement, line)
@@ -299,17 +299,23 @@ def requirements_met(requirements_file):
                 return False
 
             package = m.group(1).strip()
-            version_required = (m.group(2) or "").strip()
+            version_required = (m.group(3) or "").strip()
 
             if version_required == "":
                 continue
+
+            condition = m.group(2)
 
             try:
                 version_installed = importlib.metadata.version(package)
             except Exception:
                 return False
 
-            if packaging.version.parse(version_required) != packaging.version.parse(version_installed):
+            if condition == '==' and packaging.version.parse(version_installed) != packaging.version.parse(version_required):
+                return False
+            elif condition == '>=' and packaging.version.parse(version_installed) < packaging.version.parse(version_required):
+                return False
+            elif condition == '<=' and packaging.version.parse(version_installed) > packaging.version.parse(version_required):
                 return False
 
     return True
