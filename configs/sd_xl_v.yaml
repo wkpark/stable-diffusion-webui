@@ -10,7 +10,7 @@ model:
         num_idx: 1000
 
         weighting_config:
-          target: sgm.modules.diffusionmodules.denoiser_weighting.EpsWeighting
+          target: sgm.modules.diffusionmodules.denoiser_weighting.VWeighting
         scaling_config:
           target: sgm.modules.diffusionmodules.denoiser_scaling.VScaling
         discretization_config:
@@ -21,7 +21,7 @@ model:
       params:
         adm_in_channels: 2816
         num_classes: sequential
-        use_checkpoint: True
+        use_checkpoint: False
         in_channels: 4
         out_channels: 4
         model_channels: 320
